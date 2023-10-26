@@ -1,6 +1,6 @@
 <?php
     header('Content-type: text/plain');
-    define("debug", false);
+    define("debug", true);
     spl_autoload_register(function ($class_name) 
     {
         $file_name = str_replace('\\', DIRECTORY_SEPARATOR, $class_name) . '.php';
@@ -58,6 +58,8 @@
             // If we're in debug mode, we'll just use the username and uuid from the $_GET array.
             $username = $vars['username'];
             $uuid = $vars['uuid'];
+            $module = $vars['module'];;
+            $moduleUri = $vars['module-uri'];
         }
         else
         {
@@ -65,17 +67,35 @@
             // These are: X-SecondLife-Owner-Name and X-SecondLife-Owner-Key.
             $username = $headers['X-SecondLife-Owner-Name'];
             $uuid = $headers['X-SecondLife-Owner-Key'];
+            $module = $headers['module'];
+            $moduleUri = $headers['module-uri'];
+        }
+        if(empty($module))
+        {
+            http_response_code(400); // 400 = bad request.
+            exit(showError("No module defined."));
         }
         // At this stage, we can instantiate our database object to pass around, and we'll just use the connect function immediately.
         $db = new Database();
         $db = $db->connect();
+        /*// We're just gonna do a quick test here of accessing other databases with the same PDO login.
+        // THIS WORKS!!
+        $stmt = $db->prepare("SELECT * FROM rp_tool.users");
+        $stmt->execute();
+        $factions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if(debug)
+        {
+            echo "Result: ";
+            print_r($factions);
+            exit();
+        }*/
         // Now we'll instantiate the user manager and it will handle important things like
         // registration, verification and check to see if the user has previously loaded a character!
         $userManager;
         $userData;
         try
         {
-            $userManager = new UserManager($username, $uuid, $db);
+            $userManager = new UserManager($username, $uuid, $db, $module, $moduleUri);
             $userData = $userManager->getUserData(); // Fetch userdata for use with the current titler stuff!
         }
         catch(Exception $e)
@@ -90,17 +110,39 @@
                 showSaves -- Shows a paginated 9 save slots per page, always accompanied by page
                 roll -- initiates a dice roll, paired with vars dieSize, dieCount
                 deleteCharacter -- deletes a character, paired with var charId
-                updateCharacter -- updates character data, includes a JSON array with all settings.
+                updateCharacter -- updates character data, includes a JSON array with all settings
+                checkLast -- Check for the last loaded char & load that
         */
-        if(!isset($vars['cmd']) or empty($vars['cmd']))
+        try
         {
-            http_response_code(400); // 400 = bad request.
-            exit(showError("No command found."));
+            // All of this is in a try-catch so we can catch errors thrown by the program.
+            if(!isset($vars['cmd']) or empty($vars['cmd']))
+            {
+                http_response_code(400); // 400 = bad request.
+                exit(showError("No command found."));
+            }
+            // No need for an else clause. Move on to command parsing.
+            if($vars['cmd'] == "checkLast")
+            {
+                $characterManager = new CharacterManager($userData, $db);
+                $lastLoaded = $characterManager->checkLastLoaded();
+                // If in debug, print_r this JSON string as an array.
+                if(debug)
+                {
+                    echo "Result: ";
+                    print_r($lastLoaded);
+                }
+            }
+            else
+            {
+                http_response_code(400); // 400 = bad request.
+                exit(showError("There is no POST or GET data, if we are in debug."));
+            }
         }
-    }
-    else
-    {
-        http_response_code(400); // 400 = bad request.
-        exit(showError("There is no POST or GET data, if we are in debug."));
+        catch(Exception $e)
+        {
+            $db = null;
+            exit(showError($e->getMessage()));
+        }
     }
 ?>
